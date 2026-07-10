@@ -9,7 +9,11 @@
 // Massa do objeto de referência (em Kg)
 #define PESO_REFERENCIA 2.016
 // Fator de escala em Newtons
-#define FATOR_ESCALA PESO_REFERENCIA * 9.81
+#define FATOR_ESCALA PESO_REFERENCIA / 9.81
+
+#define RAW_VALUE 40868.80
+
+#define REFERENCIA_IS_SET true
 
 HX711 scale;
 
@@ -20,24 +24,23 @@ unsigned long init_time = 0;
 void setup() {
   //pinMode(calibrate_btn, INPUT);
 
-  Serial.begin(115200);
+  Serial.begin(9600);
 
   // Tempo para estabilizar o HX711 ao ligar
-  delay(500);
+  delay(1000);
 
   scale.begin(loadcell_data, loadcell_clk);
+
+  Serial.println("Iniciando calibração");
+
+  while(!calibrado) {
+    calibrar();
+  }
+
+  init_time = millis();
 }
 
 void loop() {
-  if (!calibrado /*|| digitalRead(calibrate_btn)*/){
-    Serial.println("Iniciando calibração");
-
-    delay(200);
-    
-    calibrar();
-
-    init_time = millis();
-  }
 
   Serial.print(scale.get_units(), 1);
   Serial.print(",");
@@ -56,12 +59,24 @@ void calibrar (){
     
     scale.tare();
 
-    Serial.println("Iniciando a leitura");
-    delay(5000);
+    float leitura = -1.0;
+    if(!REFERENCIA_IS_SET){
+      Serial.println("Iniciando a leitura, deixe o peso de referencia no banco estático");
+      delay(5000);
 
-    float leitura = scale.get_value(10);
-    Serial.print("leitura: ");
-    Serial.println(leitura);
+      leitura = scale.get_value(1000);
+      Serial.print("leitura: ");
+      Serial.print(leitura);
+      Serial.print(", fator de escala: ");
+      Serial.println(FATOR_ESCALA);
+      
+      Serial.println("Leitura realizada, resete o arduino para o valor coletado");
+      while(1);
+    } else{
+      Serial.print("Leitura já definida: ");
+      leitura = 41926.91;
+      Serial.println(leitura);
+    }
 
     scale.set_scale((leitura/FATOR_ESCALA));
 
@@ -70,7 +85,6 @@ void calibrar (){
 
     calibrado = true;
   }
-
   else{
     Serial.println("HX771 não encontrado (calibrar)");
   }
