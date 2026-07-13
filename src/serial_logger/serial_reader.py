@@ -70,6 +70,8 @@ def atualizar():
             x_data.append(tempo)
             y_data.append(forca)
 
+            label_forca.setText(f"Força: {forca:.2f} N")
+
             if forca > max_forca:
                 max_forca = forca
                 label_pico.setText(f"Força Máx: {max_forca:.2f} N")
@@ -119,6 +121,9 @@ def readSerial(serialConn):
 
             # Armazena os dados para plot
             fila_dados.put(data)
+
+        else:
+            print(data)
         
 
 #
@@ -144,7 +149,7 @@ def windowInit():
 def graphInit(app, janela):
 
     # Adiciona o plot na janela e configura rótulos
-    grafico = janela.addPlot(row=1, col=0, colspan=2, title="Força vs Tempo")
+    grafico = janela.addPlot(row=1, col=0, colspan=3, title="Força vs Tempo")
     grafico.setLabel('bottom', "Tempo", units="ms")
     grafico.setLabel('left', "Força", units="N")
 
@@ -186,8 +191,9 @@ if __name__ == '__main__':
     caneta = pg.mkPen(color='b', width=2)
     curva = grafico.plot(pen=caneta)
 
-    label_pico = janela.addLabel(text="Força Máx: 0.00 N", row=0, col=0, size='20pt', color='k', bold=True)
-    label_duracao = janela.addLabel(text="Duração: 0.00 s", row=0, col=1, size='20pt', color='k', bold=True)
+    label_pico = janela.addLabel(text="Força Máx: 0.00 N", row=0, col=1, size='20pt', color='k', bold=True)
+    label_duracao = janela.addLabel(text="Duração: 0.00 s", row=0, col=2, size='20pt', color='k', bold=True)
+    label_forca = janela.addLabel(text="Força: 0.00 N", row=0, col=0, size='20pt', color='k', bold=True)
 
     # Configuração do Timer para atualizar a tela
     timer = QtCore.QTimer()
