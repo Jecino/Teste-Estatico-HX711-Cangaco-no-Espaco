@@ -5,13 +5,12 @@
 #define loadcell_clk 6
 //#define calibrate_btn 3
 
-
 // Massa do objeto de referência (em Kg)
-#define PESO_REFERENCIA 2.016
+#define PESO_REFERENCIA 4.616
 // Fator de escala em Newtons
 #define FATOR_ESCALA PESO_REFERENCIA / 9.81
 
-#define RAW_VALUE 40868.80
+#define RAW_VALUE 98838.58
 
 #define REFERENCIA_IS_SET true
 
@@ -74,7 +73,7 @@ void calibrar (){
       while(1);
     } else{
       Serial.print("Leitura já definida: ");
-      leitura = 41926.91;
+      leitura = RAW_VALUE;
       Serial.println(leitura);
     }
 

@@ -17,7 +17,7 @@ LOG_DIR = "./log/"
 # Serial port pode ser visto no canto inferior esquerdo na arduino ide
 #
 SERIAL_PORT = '/dev/ttyUSB0'
-BAUD_RATE = 115200
+BAUD_RATE = 9600
 
 
 #
