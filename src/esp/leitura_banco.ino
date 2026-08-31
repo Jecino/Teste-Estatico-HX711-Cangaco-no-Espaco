@@ -23,7 +23,7 @@ unsigned long init_time = 0;
 void setup() {
   //pinMode(calibrate_btn, INPUT);
 
-  Serial.begin(9600);
+  Serial.begin(115200);
 
   // Tempo para estabilizar o HX711 ao ligar
   delay(1000);
