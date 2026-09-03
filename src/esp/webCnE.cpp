@@ -63,9 +63,9 @@ void handleRoot(){
         </div>
 
         <div class="panel">
-        <button type="button">Calibrar</button>
-        <button type="button">Tare</button>
-        <button type="button">Iniciar Gravação</button>
+        <button type="button" id="btn_calibrar">Calibrar</button>
+        <button type="button" id="btn_tare">Tare</button>
+        <button type="button" id="btn_gravar">Iniciar Gravação</button>
         </div>
 
         <script>
@@ -95,6 +95,34 @@ void handleRoot(){
         }, 300);
 
         chart.addTimeSeries(force_line);
+
+        </script>
+
+        <script>
+
+            document.getElementById('btn_calibrar').addEventListener('click', async () => {
+                try{
+                    const resposta = await fetch('/calibrar');
+                } catch (erro){
+                    console.error("Erro ao chamar o endpoint calibrar", erro);
+                }
+            });
+
+            document.getElementById('btn_tare').addEventListener('click', async () => {
+                try{
+                    const resposta = await fetch('/tare');
+                } catch (erro){
+                    console.error("Erro ao chamar o endpoint tare", erro);
+                }
+            });
+
+            document.getElementById('btn_gravar').addEventListener('click', async () => {
+                try{
+                    const resposta = await fetch('/iniciar_gravar');
+                } catch (erro){
+                    console.error("Erro ao chamar o endpoint gravar", erro);
+                }
+            });
 
         </script>
         </body>

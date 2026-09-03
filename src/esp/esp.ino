@@ -5,10 +5,17 @@
 
 #include "./include/webCnE.h"
 
+// ==========================================
+//                Constantes
+// ==========================================
+
 #define ESPERANDO 0
 #define GRAVANDO 1
 #define TAREANDO 2
 #define CALIBRANDO 3
+
+#define loadcell_data 2
+#define loadcell_clk 4
 
 // Massa do objeto de referência (em Kg)
 #define PESO_REFERENCIA 4.616
@@ -17,29 +24,39 @@
 
 #define RAW_VALUE 98838.58
 
-/* ----------------- Constantes ----------------- */
 const char *ap_ssid = "Banco Estático CnE";
 const char *ap_pass = "Cangas168!";
 const char *mdns_name = "bancoestatico";
-
-bool is_tareado = false;
-bool is_referencia_set = false;
-
-int estado_atual = 0;
 
 WebServer server(80);
 
 HX711 scale;
 
-float last = 0;
-unsigned long last_time = millis();
+// ==========================================
+//                Globais
+// ==========================================
+
+unsigned long last_time = 0;
+unsigned long init_time = 0;
+float last_reading = 0;
+
+bool pedido_tare = false;
+bool pedido_calibrar = false;
+bool is_tareado = false;
+bool is_referencia_set = false;
+
+int estado_atual = 0;
+
+SemaphoreHandle_t mutex_estado = NULL;
+
+
+// ==========================================
+//              Funções Aux
+// ==========================================
 
 void updateSensor(){
-  //valor de teste, trocar para atualização dos sensores reais
-  if (millis() - last_time >= 300){
-    last_time = millis();
-    last = rand() % 100;
-  }
+  last_reading = scale.get_units();
+  last_time = millis();
 }
 
 String getEstado(){
@@ -59,64 +76,61 @@ String getData(){
     b, 
     sizeof(b), 
     "{\"forca\": %.3f, \"forca_string\": \"%.3f N\", \"estado\": \"%s\"}", 
-    last, 
-    last, 
+    last_reading, 
+    last_reading, 
     getEstado());
 
   return String(b);
 }
 
-void setup() {
-  Serial.begin(115200);
-
-  delay(2000);
-
-  Serial.println("Configurando o access point");
-  WiFi.mode(WIFI_AP);
-  
-  WiFi.softAP(ap_ssid, ap_pass);
-  IPAddress myIP = WiFi.softAPIP();
-  Serial.print("Meu IP: ");
-  Serial.println(myIP);
-
-  if (!MDNS.begin(mdns_name)) {
-    Serial.println("mDNS falhou");
-  } else {
-    Serial.println("mDNS: http://bancoestatico.local/");
-  }
-
-  server.on("/",handleRoot);
-  server.on("/get_data",[](){server.send(200,"application/json",getData());});
-  server.begin();
+void endpointCalibrar (){
+  pedido_calibrar = true;
 }
 
-void tarear (){
+void endpointTare (){
+  pedido_tare = true;
+}
+
+void endpointGravar(){
+  estado_atual = GRAVANDO;
+}
+
+void tarear(){
   Serial.println("Fazendo o tare");
-    //Bip para o inicio
-    delay(5000);
-    
-    scale.tare();
-    is_tareado = true;
-    //Bip para o fim
+  mudarEstado(TAREANDO);
+
+  //Bip para o inicio
+    vTaskDelay(5000 / portTICK_PERIOD_MS);
+  
+  scale.tare();
+  is_tareado = true;
+  //Bip para o fim
+
+  Serial.println("Tare finalizado");
+  mudarEstado(ESPERANDO);
 }
 
-void calibrar (){
+void calibrar(){
   if (scale.is_ready()){
+    mudarEstado(CALIBRANDO);
 
     scale.set_scale();
     
     if(!is_tareado){
+      Serial.println("tare não realizado, iniciando tare");
       tarear();
+      Serial.println("voltando para a calibragem");
+      mudarEstado(CALIBRANDO);
     }
 
-    float leitura = -1.0;
+    double leitura = -1.0;
 
     if(!is_referencia_set){
       Serial.println("Iniciando a leitura, deixe o peso de referencia no banco estático");
       //2 bips para o inicio
-      delay(5000);
+      vTaskDelay(5000 / portTICK_PERIOD_MS);
 
-      leitura = scale.get_value(1000);
+      leitura = scale.get_value(100);
       Serial.print("leitura: ");
       Serial.print(leitura);
       Serial.print(", fator de escala: ");
@@ -129,17 +143,106 @@ void calibrar (){
       Serial.println(leitura);
     }
 
-    scale.set_scale((leitura/FATOR_ESCALA));
+    double escala = leitura/FATOR_ESCALA;
+    if (escala == 0)
+      scale.set_scale(1);
+    else
+      scale.set_scale((leitura/FATOR_ESCALA));
 
     Serial.print("Escala: ");
     Serial.println(leitura/FATOR_ESCALA);
+    Serial.println("Calibragem finalizada");
   }
   else{
     Serial.println("HX771 não encontrado (calibrar)");
   }
+
+  mudarEstado(ESPERANDO);
+}
+
+// ==========================================
+//            Setup e Main Loop
+// ==========================================
+
+void setup() {
+  Serial.begin(115200);
+
+  delay(2000);
+
+  // Configura o ponto de acesso
+  Serial.println("Configurando o access point");
+  WiFi.mode(WIFI_AP);
+  
+  WiFi.softAP(ap_ssid, ap_pass);
+  IPAddress myIP = WiFi.softAPIP();
+  Serial.print("Meu IP: ");
+  Serial.println(myIP);
+
+  // Inicia o DNS
+  if (!MDNS.begin(mdns_name)) {
+    Serial.println("mDNS falhou");
+  } else {
+    Serial.println("mDNS: http://bancoestatico.local/");
+  }
+
+  // Inicia as células de carga
+  scale.begin(loadcell_data, loadcell_clk);
+
+  // Define as rotas acessíveis
+  server.on("/",handleRoot);
+  server.on("/calibrar",endpointCalibrar);
+  server.on("/tare",endpointTare);
+  server.on("/iniciar_gravar",endpointGravar);
+  server.on("/get_data",[](){server.send(200,"application/json",getData());});
+  server.begin();
+
+  mutex_estado = xSemaphoreCreateMutex();
+
+  xTaskCreatePinnedToCore(taskHandleClient, "handleClient", 10000, NULL, 0, NULL, 0);
+  xTaskCreatePinnedToCore(taskRotinas, "Rotinas", 5000, NULL, 0, NULL, 0);
+}
+
+void mudarEstado(int estado){
+  xSemaphoreTake(mutex_estado, portMAX_DELAY);
+  estado_atual = estado;
+  xSemaphoreGive(mutex_estado);
+}
+
+void taskHandleClient(void* pvParameters){
+  while(true){
+    server.handleClient();
+
+    vTaskDelay(10 / portTICK_PERIOD_MS);
+  }
+}
+
+void taskRotinas(void* pvParameters){
+  while(true){
+    if(pedido_calibrar){
+      calibrar();
+      pedido_calibrar = false;
+    }
+
+    else if(pedido_tare){
+      tarear();
+      pedido_tare = false;
+    }
+
+    vTaskDelay(50 / portTICK_PERIOD_MS);
+  }
 }
 
 void loop() {
-  updateSensor();
-  server.handleClient();
+  int estado_temp;
+
+  xSemaphoreTake(mutex_estado, portMAX_DELAY);
+  estado_temp = estado_atual;
+  xSemaphoreGive(mutex_estado);
+
+  if (estado_temp == TAREANDO || estado_temp == CALIBRANDO){
+
+  }
+  else{
+    updateSensor();
+  }
 }
