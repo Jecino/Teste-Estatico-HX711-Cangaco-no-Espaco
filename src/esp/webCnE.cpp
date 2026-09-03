@@ -82,7 +82,8 @@ void handleRoot(){
         async function update(){
             try{
                 data = await (await fetch('/get_data')).json();
-                force.textContent = data.forca_string;
+                force.textContent = data.forca + " N";
+                time.textContent = data.duracao/1000 + " s";
                 estado.textContent = data.estado;
             } catch(e){}
         }
@@ -119,6 +120,13 @@ void handleRoot(){
             document.getElementById('btn_gravar').addEventListener('click', async () => {
                 try{
                     const resposta = await fetch('/iniciar_gravar');
+                    if (btn_tare.textContent == "Parar gravação"){
+                        btn_tare.textContent = "Iniciar gravação";
+                    }
+                    else{
+                        btn_tare.textContent = "Parar gravação";
+                    }
+
                 } catch (erro){
                     console.error("Erro ao chamar o endpoint gravar", erro);
                 }

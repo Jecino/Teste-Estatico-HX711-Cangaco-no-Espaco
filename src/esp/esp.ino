@@ -40,6 +40,9 @@ unsigned long last_time = 0;
 unsigned long init_time = 0;
 float last_reading = 0;
 
+unsigned long gravacao_init_time = 0;
+unsigned long gravacao_last_time = 0;
+
 bool pedido_tare = false;
 bool pedido_calibrar = false;
 bool is_tareado = false;
@@ -75,24 +78,51 @@ String getData(){
   snprintf(
     b, 
     sizeof(b), 
-    "{\"forca\": %.3f, \"forca_string\": \"%.3f N\", \"estado\": \"%s\"}", 
+    "{\"forca\": %.4f, \"duracao\": \"%.3lu\", \"estado\": \"%s\"}", 
     last_reading, 
-    last_reading, 
+    (gravacao_last_time - gravacao_init_time), 
     getEstado());
 
   return String(b);
 }
 
 void endpointCalibrar (){
-  pedido_calibrar = true;
+  int estado_temp;
+
+  xSemaphoreTake(mutex_estado, portMAX_DELAY);
+  estado_temp = estado_atual;
+  xSemaphoreGive(mutex_estado);
+
+  if (estado_temp != GRAVANDO)
+    pedido_calibrar = true;
 }
 
 void endpointTare (){
-  pedido_tare = true;
+  int estado_temp;
+
+  xSemaphoreTake(mutex_estado, portMAX_DELAY);
+  estado_temp = estado_atual;
+  xSemaphoreGive(mutex_estado);
+
+  if (estado_temp != GRAVANDO)
+    pedido_tare = true;
 }
 
 void endpointGravar(){
-  estado_atual = GRAVANDO;
+  int estado_temp;
+
+  xSemaphoreTake(mutex_estado, portMAX_DELAY);
+  estado_temp = estado_atual;
+  xSemaphoreGive(mutex_estado);
+
+  if (estado_temp == ESPERANDO){
+    gravacao_init_time = millis();
+    mudarEstado(GRAVANDO);
+  }
+  else if (estado_temp == GRAVANDO) {
+    gravacao_last_time = millis();
+    mudarEstado(ESPERANDO);
+  }
 }
 
 void tarear(){
@@ -160,6 +190,36 @@ void calibrar(){
   mudarEstado(ESPERANDO);
 }
 
+void mudarEstado(int estado){
+  xSemaphoreTake(mutex_estado, portMAX_DELAY);
+  estado_atual = estado;
+  xSemaphoreGive(mutex_estado);
+}
+
+void taskHandleClient(void* pvParameters){
+  while(true){
+    server.handleClient();
+
+    vTaskDelay(10 / portTICK_PERIOD_MS);
+  }
+}
+
+void taskRotinas(void* pvParameters){
+  while(true){
+    if(pedido_calibrar){
+      calibrar();
+      pedido_calibrar = false;
+    }
+
+    else if(pedido_tare){
+      tarear();
+      pedido_tare = false;
+    }
+
+    vTaskDelay(50 / portTICK_PERIOD_MS);
+  }
+}
+
 // ==========================================
 //            Setup e Main Loop
 // ==========================================
@@ -202,36 +262,6 @@ void setup() {
   xTaskCreatePinnedToCore(taskRotinas, "Rotinas", 5000, NULL, 0, NULL, 0);
 }
 
-void mudarEstado(int estado){
-  xSemaphoreTake(mutex_estado, portMAX_DELAY);
-  estado_atual = estado;
-  xSemaphoreGive(mutex_estado);
-}
-
-void taskHandleClient(void* pvParameters){
-  while(true){
-    server.handleClient();
-
-    vTaskDelay(10 / portTICK_PERIOD_MS);
-  }
-}
-
-void taskRotinas(void* pvParameters){
-  while(true){
-    if(pedido_calibrar){
-      calibrar();
-      pedido_calibrar = false;
-    }
-
-    else if(pedido_tare){
-      tarear();
-      pedido_tare = false;
-    }
-
-    vTaskDelay(50 / portTICK_PERIOD_MS);
-  }
-}
-
 void loop() {
   int estado_temp;
 
@@ -239,8 +269,13 @@ void loop() {
   estado_temp = estado_atual;
   xSemaphoreGive(mutex_estado);
 
+  // Não faz nada se estiver tareando ou calibrando
   if (estado_temp == TAREANDO || estado_temp == CALIBRANDO){
 
+  }
+  else if (estado_temp == GRAVANDO){
+    gravacao_last_time = millis();
+    updateSensor();
   }
   else{
     updateSensor();
