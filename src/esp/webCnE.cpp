@@ -1,5 +1,90 @@
 #include <./include/webCnE.h>
 
+// Função para pegar os dados que serão enviados à web formato em json
+String getData(){
+  char b[100];
+  snprintf(
+    b, 
+    sizeof(b), 
+    "{\"forca\": %.4f, \"duracao\": \"%.3lu\", \"estado\": \"%s\"}", 
+    last_reading, 
+    (gravacao_last_time - gravacao_init_time), 
+    getEstado());
+
+  return String(b);
+}
+
+// Função ligada ao endpoint calibrar, realiza um pedido de calibragem
+void endpointCalibrar (){
+  int estado_temp;
+
+  xSemaphoreTake(mutex_estado, portMAX_DELAY);
+  estado_temp = estado_atual;
+  xSemaphoreGive(mutex_estado);
+
+  if (estado_temp != GRAVANDO)
+    pedido_calibrar = true;
+}
+
+// Função ligada ao endpoint tare, realiza um pedido de tare
+void endpointTare (){
+  int estado_temp;
+
+  xSemaphoreTake(mutex_estado, portMAX_DELAY);
+  estado_temp = estado_atual;
+  xSemaphoreGive(mutex_estado);
+
+  if (estado_temp != GRAVANDO)
+    pedido_tare = true;
+}
+
+// Função ligado ao endpoint gravar, controla o inicio e fim de gravação, além de receber o nome do arquivo
+void endpointGravar(){
+  int estado_temp;
+
+  xSemaphoreTake(mutex_estado, portMAX_DELAY);
+  estado_temp = estado_atual;
+  xSemaphoreGive(mutex_estado);
+
+  if (estado_temp == GRAVANDO) {
+    Serial.println("Finalizando gravação");
+
+    xSemaphoreTake(mutex_arquivo, portMAX_DELAY);
+    arquivo.close();
+    xSemaphoreGive(mutex_arquivo);
+    gravacao_last_time = millis();
+    mudarEstado(ESPERANDO);
+    return;
+  }
+  else if (estado_temp != ESPERANDO){
+    Serial.println("Não foi possível fazer isso no momento");
+    return;
+  }
+
+  if (server.hasArg("datahora")){
+    String datahora = server.arg("datahora");
+    nome_arquivo_atual = "/TESTE_" + datahora + ".csv";
+
+    xSemaphoreTake(mutex_arquivo, portMAX_DELAY);
+
+    arquivo = LittleFS.open(nome_arquivo_atual, FILE_WRITE);
+
+    if(!arquivo){
+      Serial.println("Houve um problema ao criar o arquivo de gravação");
+      nome_arquivo_atual = "";
+      xSemaphoreGive(mutex_arquivo);
+      return;
+    }
+
+    arquivo.println("Tempo(s),Força(N)");
+    xSemaphoreGive(mutex_arquivo);
+    Serial.println("Arquivo criado: " + nome_arquivo_atual);
+
+    gravacao_init_time = millis();
+    mudarEstado(GRAVANDO);
+  }
+}
+
 void handleRoot(){
     String page = R"rawliteral(
         <!DOCTYPE html>
@@ -54,18 +139,21 @@ void handleRoot(){
 
         <body>
         <div class="panel">
-        <div class="text_container">
-        <div class="text" id="force">--.- N</div>
-        <div class="text" id="time">--.- s</div>
-        <div class="text" id="estado"></div>
-        </div>
-        <canvas id="force_canvas"></canvas>
+            <div class="text_container">
+                <div class="text" id="force">--.- N</div>
+                <div class="text" id="time">--.- s</div>
+                <div class="text" id="estado"></div>
+            </div>
+            <canvas id="force_canvas"></canvas>
         </div>
 
         <div class="panel">
-        <button type="button" id="btn_calibrar">Calibrar</button>
-        <button type="button" id="btn_tare">Tare</button>
-        <button type="button" id="btn_gravar">Iniciar Gravação</button>
+            <button type="button" id="btn_calibrar">Calibrar</button>
+            <button type="button" id="btn_tare">Tare</button>
+            <button type="button" id="btn_gravar">Iniciar Gravação</button>
+            <a href="/arquivos">
+                <button type="button" id="btn_arquivos">Arquivos</button>
+            <a>
         </div>
 
         <script>
@@ -129,7 +217,7 @@ void handleRoot(){
                     
                     const dataHoraStr = `${dia}_${mes}_${ano}__${horas}_${min}_${seg}`;
                     
-                    const resposta = await fetch('/gravar?datahora=${dataHoraStr}');
+                    const resposta = await fetch(`/gravar?datahora=${dataHoraStr}`);
 
                     if (btn_gravar.textContent == "Parar gravação"){
                         btn_gravar.textContent = "Iniciar gravação";
@@ -145,6 +233,73 @@ void handleRoot(){
 
         </script>
         </body>
+        </html>
+        )rawliteral";
+
+        server.send(200, "text/html", page);
+}
+
+void handleArquivos(){
+    String page = R"rawliteral(
+        <!DOCTYPE html>
+        <html>
+            <head>
+                <meta charset="utf-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1">
+                <title>Banco Estático</title>
+
+                <style>
+                body{
+                    width: 95%;
+                    max-width: 1000px;
+                    margin: 0 auto;
+                    background-color: #E0C9A6;
+                }
+
+                .panel{
+                    border-radius: 10px;
+                    border-style: solid;
+                    border-width: medium;
+                    border-color: white;
+
+                    padding: 10px;
+                    margin: 10px 0 0 0;
+
+                    display: flex;
+                    justify-content: center;
+                    flex-wrap: wrap;
+                    gap: 15px;
+                }
+
+                .text{
+                    margin: 20px 40px;
+                }
+
+                .panel button{
+                    margin: 0 10px;
+                }
+                </style>
+
+            </head>
+
+            <body>
+                <div class="panel">
+                    <div class="text_container">
+                        <div class="text" id="force">TESTE_03_09_2026__22_53_10.csv</div>
+                        <div class="text" id="force">TESTE_03_09_2026__22_52_55.csv</div>
+                    </div>
+                </div>
+                <div class="panel">
+                    <a href="/">
+                        <button type="button" id="btn_voltar">Pagina Principal</button>
+                    </a>
+                </div>
+
+                <script>
+
+                </script>
+
+            </body>
         </html>
         )rawliteral";
 

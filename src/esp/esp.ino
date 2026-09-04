@@ -1,5 +1,6 @@
 #include <WiFi.h>
 #include <ESPmDNS.h>
+#include <WebServer.h>
 #include <LittleFS.h>
 #include <HX711.h>
 #include <Wire.h>
@@ -79,91 +80,6 @@ String getEstado(){
     return "Tareando";
   else
     return "Calibrando";
-}
-
-// Função para pegar os dados que serão enviados à web formato em json
-String getData(){
-  char b[100];
-  snprintf(
-    b, 
-    sizeof(b), 
-    "{\"forca\": %.4f, \"duracao\": \"%.3lu\", \"estado\": \"%s\"}", 
-    last_reading, 
-    (gravacao_last_time - gravacao_init_time), 
-    getEstado());
-
-  return String(b);
-}
-
-// Função ligada ao endpoint calibrar, realiza um pedido de calibragem
-void endpointCalibrar (){
-  int estado_temp;
-
-  xSemaphoreTake(mutex_estado, portMAX_DELAY);
-  estado_temp = estado_atual;
-  xSemaphoreGive(mutex_estado);
-
-  if (estado_temp != GRAVANDO)
-    pedido_calibrar = true;
-}
-
-// Função ligada ao endpoint tare, realiza um pedido de tare
-void endpointTare (){
-  int estado_temp;
-
-  xSemaphoreTake(mutex_estado, portMAX_DELAY);
-  estado_temp = estado_atual;
-  xSemaphoreGive(mutex_estado);
-
-  if (estado_temp != GRAVANDO)
-    pedido_tare = true;
-}
-
-// Função ligado ao endpoint gravar, controla o inicio e fim de gravação, além de receber o nome do arquivo
-void endpointGravar(){
-  int estado_temp;
-
-  xSemaphoreTake(mutex_estado, portMAX_DELAY);
-  estado_temp = estado_atual;
-  xSemaphoreGive(mutex_estado);
-
-  if (estado_temp == GRAVANDO) {
-    Serial.println("Finalizando gravação");
-
-    xSemaphoreTake(mutex_arquivo, portMAX_DELAY);
-    arquivo.close();
-    xSemaphoreGive(mutex_arquivo);
-    gravacao_last_time = millis();
-    mudarEstado(ESPERANDO);
-    return;
-  }
-  else if (estado_temp != ESPERANDO){
-    Serial.println("Não foi possível fazer isso no momento");
-    return;
-  }
-
-  if (server.hasArg("datahora")){
-    String datahora = server.arg("datahora");
-    nome_arquivo_atual = "/TESTE_" + datahora + ".csv";
-
-    xSemaphoreTake(mutex_arquivo, portMAX_DELAY);
-
-    arquivo = LittleFS.open(nome_arquivo_atual, FILE_WRITE);
-
-    if(!arquivo){
-      Serial.println("Houve um problema ao criar o arquivo de gravação");
-      nome_arquivo_atual = "";
-      xSemaphoreGive(mutex_arquivo);
-      return;
-    }
-
-    arquivo.println("Tempo(s),Força(N)");
-    xSemaphoreGive(mutex_arquivo);
-    Serial.println("Arquivo criado: " + nome_arquivo_atual);
-
-    gravacao_init_time = millis();
-    mudarEstado(GRAVANDO);
-  }
 }
 
 // Função para realizar o tare do banco
@@ -271,6 +187,7 @@ void taskRotinas(void* pvParameters){
 // ==========================================
 
 void setup() {
+
   Serial.begin(115200);
 
   delay(2000);
@@ -296,6 +213,7 @@ void setup() {
 
   // Define as rotas acessíveis
   server.on("/",handleRoot);
+  server.on("/arquivos",handleArquivos);
   server.on("/calibrar",endpointCalibrar);
   server.on("/tare",endpointTare);
   server.on("/gravar",endpointGravar);
