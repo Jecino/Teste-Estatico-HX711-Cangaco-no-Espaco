@@ -66,7 +66,7 @@ SemaphoreHandle_t mutex_arquivo = NULL;
 void updateSensor(){
   //last_reading = scale.get_units();
   delay(12); // simula o atraso do hx711 (80 hz);
-  last_reading = (float)(random(0, 10001)/10000);
+  last_reading = (float)(random(0, 10001)/10000.0);
   last_time = millis();
 }
 
@@ -214,10 +214,11 @@ void setup() {
   // Define as rotas acessíveis
   server.on("/",handleRoot);
   server.on("/arquivos",handleArquivos);
+  server.on("/listarArquivos",endpointListarArquivos);
   server.on("/calibrar",endpointCalibrar);
   server.on("/tare",endpointTare);
   server.on("/gravar",endpointGravar);
-  server.on("/get_data",[](){server.send(200,"application/json",getData());});
+  server.on("/get_data",getData);
   server.begin();
 
   // Inicia os mutex para controlar o acesso e escrita dos estados e dos arquivos

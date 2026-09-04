@@ -35,4 +35,6 @@ void endpointTare();
 
 void endpointGravar();
 
-String getData();
+void endpointListarArquivos();
+
+void getData();

@@ -1,7 +1,7 @@
 #include <./include/webCnE.h>
 
 // Função para pegar os dados que serão enviados à web formato em json
-String getData(){
+void getData(){
   char b[100];
   snprintf(
     b, 
@@ -11,7 +11,7 @@ String getData(){
     (gravacao_last_time - gravacao_init_time), 
     getEstado());
 
-  return String(b);
+    server.send(200,"application/json",String(b));
 }
 
 // Função ligada ao endpoint calibrar, realiza um pedido de calibragem
@@ -24,6 +24,32 @@ void endpointCalibrar (){
 
   if (estado_temp != GRAVANDO)
     pedido_calibrar = true;
+}
+
+void endpointListarArquivos(){
+    String json = "[";
+
+    File root = LittleFS.open("/");
+    File file = root.openNextFile();
+    bool primeiro = true;
+
+    while(file){
+        if(!primeiro){
+            json += ",";
+        }
+
+        String nome = file.name();
+        if(!nome.startsWith("/")) nome = "/" + nome;
+
+        json += "{\"nome\":\"" + nome + "\", \"tamanho\":" + String(file.size()) + "}";
+
+        primeiro = false;
+        file = root.openNextFile();
+    }
+
+    json += "]";
+
+    server.send(200, "application/json", json);
 }
 
 // Função ligada ao endpoint tare, realiza um pedido de tare
@@ -153,7 +179,7 @@ void handleRoot(){
             <button type="button" id="btn_gravar">Iniciar Gravação</button>
             <a href="/arquivos">
                 <button type="button" id="btn_arquivos">Arquivos</button>
-            <a>
+            </a>
         </div>
 
         <script>
@@ -219,11 +245,11 @@ void handleRoot(){
                     
                     const resposta = await fetch(`/gravar?datahora=${dataHoraStr}`);
 
-                    if (btn_gravar.textContent == "Parar gravação"){
-                        btn_gravar.textContent = "Iniciar gravação";
+                    if (estado.innerText === "Gravando"){
+                        btn_gravar.textContent = "Parar gravação";
                     }
                     else{
-                        btn_gravar.textContent = "Parar gravação";
+                        btn_gravar.textContent = "Iniciar gravação";
                     }
 
                 } catch (erro){
