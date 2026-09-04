@@ -1,5 +1,6 @@
 #include <WiFi.h>
 #include <ESPmDNS.h>
+#include <LittleFS.h>
 #include <HX711.h>
 #include <Wire.h>
 
@@ -42,6 +43,8 @@ float last_reading = 0;
 
 unsigned long gravacao_init_time = 0;
 unsigned long gravacao_last_time = 0;
+String nome_arquivo_atual = "";
+File arquivo;
 
 bool pedido_tare = false;
 bool pedido_calibrar = false;
@@ -51,17 +54,22 @@ bool is_referencia_set = false;
 int estado_atual = 0;
 
 SemaphoreHandle_t mutex_estado = NULL;
+SemaphoreHandle_t mutex_arquivo = NULL;
 
 
 // ==========================================
 //              Funções Aux
 // ==========================================
 
+// Função que faz uma leitura do banco
 void updateSensor(){
-  last_reading = scale.get_units();
+  //last_reading = scale.get_units();
+  delay(12); // simula o atraso do hx711 (80 hz);
+  last_reading = (float)(random(0, 10001)/10000);
   last_time = millis();
 }
 
+// Função para traduzir o estado atual para string
 String getEstado(){
   if (estado_atual == ESPERANDO)
     return "Esperando";
@@ -73,6 +81,7 @@ String getEstado(){
     return "Calibrando";
 }
 
+// Função para pegar os dados que serão enviados à web formato em json
 String getData(){
   char b[100];
   snprintf(
@@ -86,6 +95,7 @@ String getData(){
   return String(b);
 }
 
+// Função ligada ao endpoint calibrar, realiza um pedido de calibragem
 void endpointCalibrar (){
   int estado_temp;
 
@@ -97,6 +107,7 @@ void endpointCalibrar (){
     pedido_calibrar = true;
 }
 
+// Função ligada ao endpoint tare, realiza um pedido de tare
 void endpointTare (){
   int estado_temp;
 
@@ -108,6 +119,7 @@ void endpointTare (){
     pedido_tare = true;
 }
 
+// Função ligado ao endpoint gravar, controla o inicio e fim de gravação, além de receber o nome do arquivo
 void endpointGravar(){
   int estado_temp;
 
@@ -115,16 +127,46 @@ void endpointGravar(){
   estado_temp = estado_atual;
   xSemaphoreGive(mutex_estado);
 
-  if (estado_temp == ESPERANDO){
+  if (estado_temp == GRAVANDO) {
+    Serial.println("Finalizando gravação");
+
+    xSemaphoreTake(mutex_arquivo, portMAX_DELAY);
+    arquivo.close();
+    xSemaphoreGive(mutex_arquivo);
+    gravacao_last_time = millis();
+    mudarEstado(ESPERANDO);
+    return;
+  }
+  else if (estado_temp != ESPERANDO){
+    Serial.println("Não foi possível fazer isso no momento");
+    return;
+  }
+
+  if (server.hasArg("datahora")){
+    String datahora = server.arg("datahora");
+    nome_arquivo_atual = "/TESTE_" + datahora + ".csv";
+
+    xSemaphoreTake(mutex_arquivo, portMAX_DELAY);
+
+    arquivo = LittleFS.open(nome_arquivo_atual, FILE_WRITE);
+
+    if(!arquivo){
+      Serial.println("Houve um problema ao criar o arquivo de gravação");
+      nome_arquivo_atual = "";
+      xSemaphoreGive(mutex_arquivo);
+      return;
+    }
+
+    arquivo.println("Tempo(s),Força(N)");
+    xSemaphoreGive(mutex_arquivo);
+    Serial.println("Arquivo criado: " + nome_arquivo_atual);
+
     gravacao_init_time = millis();
     mudarEstado(GRAVANDO);
   }
-  else if (estado_temp == GRAVANDO) {
-    gravacao_last_time = millis();
-    mudarEstado(ESPERANDO);
-  }
 }
 
+// Função para realizar o tare do banco
 void tarear(){
   Serial.println("Fazendo o tare");
   mudarEstado(TAREANDO);
@@ -140,6 +182,7 @@ void tarear(){
   mudarEstado(ESPERANDO);
 }
 
+// Função que realiza a calibração do banco estático
 void calibrar(){
   if (scale.is_ready()){
     mudarEstado(CALIBRANDO);
@@ -190,12 +233,14 @@ void calibrar(){
   mudarEstado(ESPERANDO);
 }
 
+// Função segura para mudar o estado da máquina
 void mudarEstado(int estado){
   xSemaphoreTake(mutex_estado, portMAX_DELAY);
   estado_atual = estado;
   xSemaphoreGive(mutex_estado);
 }
 
+// Função usada para fazer o handling do webserver de forma paralela
 void taskHandleClient(void* pvParameters){
   while(true){
     server.handleClient();
@@ -204,6 +249,7 @@ void taskHandleClient(void* pvParameters){
   }
 }
 
+// Função usada para controlar os pedidos de calibrar e tare gerados pelo frontend de forma paralela
 void taskRotinas(void* pvParameters){
   while(true){
     if(pedido_calibrar){
@@ -252,14 +298,25 @@ void setup() {
   server.on("/",handleRoot);
   server.on("/calibrar",endpointCalibrar);
   server.on("/tare",endpointTare);
-  server.on("/iniciar_gravar",endpointGravar);
+  server.on("/gravar",endpointGravar);
   server.on("/get_data",[](){server.send(200,"application/json",getData());});
   server.begin();
 
+  // Inicia os mutex para controlar o acesso e escrita dos estados e dos arquivos
   mutex_estado = xSemaphoreCreateMutex();
+  mutex_arquivo = xSemaphoreCreateMutex();
 
+  // Cria a task handleClient que roda no core 0
   xTaskCreatePinnedToCore(taskHandleClient, "handleClient", 10000, NULL, 0, NULL, 0);
+  // Cria a task Rotinas que roda no core 0
   xTaskCreatePinnedToCore(taskRotinas, "Rotinas", 5000, NULL, 0, NULL, 0);
+
+  // Inicia o sistema de arquivos
+  if(!LittleFS.begin(true)){
+    Serial.println("Erro ao montar LittleFS");
+    return;
+  }
+  Serial.println("LittleFS iniciado com sucesso");
 }
 
 void loop() {
@@ -273,9 +330,17 @@ void loop() {
   if (estado_temp == TAREANDO || estado_temp == CALIBRANDO){
 
   }
-  else if (estado_temp == GRAVANDO){
+  else if (estado_temp == GRAVANDO && nome_arquivo_atual != ""){
     gravacao_last_time = millis();
     updateSensor();
+
+    xSemaphoreTake(mutex_arquivo, portMAX_DELAY);
+    if(arquivo){
+      arquivo.print(last_time/1000, 3);
+      arquivo.print(',');
+      arquivo.println(last_reading, 4);
+    }
+    xSemaphoreGive(mutex_arquivo);
   }
   else{
     updateSensor();

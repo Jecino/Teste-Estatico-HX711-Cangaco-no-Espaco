@@ -119,12 +119,23 @@ void handleRoot(){
 
             document.getElementById('btn_gravar').addEventListener('click', async () => {
                 try{
-                    const resposta = await fetch('/iniciar_gravar');
-                    if (btn_tare.textContent == "Parar gravação"){
-                        btn_tare.textContent = "Iniciar gravação";
+                    const agora = new Date();
+                    const ano = agora.getFullYear();
+                    const mes = String(agora.getMonth() + 1).padStart(2, '0');
+                    const dia = String(agora.getDate()).padStart(2, '0');
+                    const horas = String(agora.getHours()).padStart(2, '0');
+                    const min = String(agora.getMinutes()).padStart(2, '0');
+                    const seg = String(agora.getSeconds()).padStart(2, '0');
+                    
+                    const dataHoraStr = `${dia}_${mes}_${ano}__${horas}_${min}_${seg}`;
+                    
+                    const resposta = await fetch('/gravar?datahora=${dataHoraStr}');
+
+                    if (btn_gravar.textContent == "Parar gravação"){
+                        btn_gravar.textContent = "Iniciar gravação";
                     }
                     else{
-                        btn_tare.textContent = "Parar gravação";
+                        btn_gravar.textContent = "Parar gravação";
                     }
 
                 } catch (erro){
