@@ -37,4 +37,8 @@ void endpointGravar();
 
 void endpointListarArquivos();
 
+void endpointDownloadArquivo();
+
+void endpointDeletarArquivo();
+
 void getData();

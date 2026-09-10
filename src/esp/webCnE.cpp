@@ -52,6 +52,43 @@ void endpointListarArquivos(){
     server.send(200, "application/json", json);
 }
 
+void endpointDeletarArquivo() {
+
+  if (server.hasArg("file")) {
+    String nomeArquivo = server.arg("file");
+
+    if (LittleFS.remove(nomeArquivo)) {
+      server.send(200, "text/plain", "Arquivo deletado com sucesso");
+      Serial.println("Deletado: " + nomeArquivo);
+    } else {
+      server.send(500, "text/plain", "Erro ao deletar o arquivo");
+      Serial.println("Erro ao deletar: " + nomeArquivo);
+    }
+  } else {
+    server.send(400, "text/plain", "Nome do arquivo ausente");
+  }
+}
+
+void endpointDownloadArquivo(){
+    if (server.hasArg("file")){
+
+        String nomeArquivo = server.arg("file");
+
+        if (LittleFS.exists(nomeArquivo)){
+            File file = LittleFS.open(nomeArquivo, "r");
+
+            server.sendHeader("Content-Disposition", "attachment; filename=" + nomeArquivo.substring(1));
+            server.streamFile(file, "text/csv");
+            file.close();
+
+        } else{
+            server.send(404, "text/plain", "Arquivo não encontrado");
+        }
+    } else{
+        server.send(404, "text/plain", "Nome do arquivo não especificado");
+    }
+}
+
 // Função ligada ao endpoint tare, realiza um pedido de tare
 void endpointTare (){
   int estado_temp;
@@ -310,10 +347,18 @@ void handleArquivos(){
 
             <body>
                 <div class="panel">
-                    <div class="text_container">
-                        <div class="text" id="force">TESTE_03_09_2026__22_53_10.csv</div>
-                        <div class="text" id="force">TESTE_03_09_2026__22_52_55.csv</div>
-                    </div>
+                    <table id="tabelaArquivos" style="width: 100%, text-align: left;">
+                        <thead>
+                            <tr>
+                                <th>Nome</th>
+                                <th>Tamanho</th>
+                                <th>Ação</th>
+                            </tr>
+                        </thead>
+                        <tbody id="corpoTabela">
+                            <tr><td colspan="3">Carregando arquivos...</td></tr>
+                        </tbody>
+                    </table>
                 </div>
                 <div class="panel">
                     <a href="/">
@@ -323,6 +368,76 @@ void handleArquivos(){
 
                 <script>
 
+                    async function confirmarDelecao(nomeArquivo, nomeExibicao) {
+
+                        const temCerteza = window.confirm(
+                            `AVISO: Você tem certeza que deseja deletar o teste "${nomeExibicao.substring(1)}"?\n\nEsta ação apagará os dados definitivamente e não pode ser desfeita.`
+                        );
+
+                        // 2. Se clicou em "OK", segue com a exclusão
+                        if (temCerteza) {
+                            try {
+                                // Envia a requisição para o ESP32 usando o método HTTP DELETE
+                                const resposta = await fetch(`/delete?file=${nomeArquivo}`, { 
+                                    method: 'DELETE' 
+                                });
+
+                                if (resposta.ok) {
+                                    // Atualiza a tabela automaticamente para sumir com o arquivo deletado
+                                    carregarListaArquivos(); 
+                                } else {
+                                    alert("Falha ao tentar deletar o arquivo");
+                                }
+                            } catch (erro) {
+                                console.error("Erro na comunicação:", erro);
+                                alert("Erro de conexão com o ESP32.");
+                            }
+                        }
+                    }
+
+                    async function carregarListaArquivos(){
+                        const tbody = document.getElementById('corpoTabela');
+
+                        try{
+                            const resposta = await fetch("/listararquivos")
+                            const arquivos = await resposta.json();
+
+                            tbody.innerHTML = "";
+
+                            if (arquivos.length === 0) {
+                                tbody.innerHTML = "<tr><td colspan='3'>Nenhum arquivo gravado.</td></tr>";
+                                return;
+                            }
+
+                            arquivos.forEach(arq => {
+                                // Converte os bytes para KB no frontend
+                                const tamanhoKB = (arq.tamanho / 1024).toFixed(2) + " KB";
+                                
+                                // Cria a linha (tr) e as colunas (td)
+                                const tr = document.createElement('tr');
+                                tr.innerHTML = `
+                                    <td>${arq.nome.substring(1)}</td>
+                                    <td>${tamanhoKB}</td>
+                                    <td>
+                                        <a href="/download?file=${arq.nome}">
+                                            <button type="button">⤓</button>
+                                        </a>
+
+                                        <button type="button" onclick="confirmarDelecao('${arq.nome}', '${arq.nome}')">🗑</button>
+                                    </td>
+                                `;
+                                // Adiciona a linha pronta na tabela
+                                tbody.appendChild(tr);
+                            });
+
+                        } catch (erro) {
+                                console.error("Erro ao carregar arquivos:", erro);
+                                tbody.innerHTML = "<tr><td colspan='3'>Não foi possível recuperar a lista de arquivos.</td></tr>";
+                        }
+
+                    }
+
+                    carregarListaArquivos();
                 </script>
 
             </body>

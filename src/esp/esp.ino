@@ -214,7 +214,9 @@ void setup() {
   // Define as rotas acessíveis
   server.on("/",handleRoot);
   server.on("/arquivos",handleArquivos);
-  server.on("/listarArquivos",endpointListarArquivos);
+  server.on("/listararquivos",endpointListarArquivos);
+  server.on("/download",endpointDownloadArquivo);
+  server.on("/delete", HTTP_DELETE, endpointDeletarArquivo);
   server.on("/calibrar",endpointCalibrar);
   server.on("/tare",endpointTare);
   server.on("/gravar",endpointGravar);
@@ -255,7 +257,9 @@ void loop() {
 
     xSemaphoreTake(mutex_arquivo, portMAX_DELAY);
     if(arquivo){
-      arquivo.print(last_time/1000, 3);
+      float tempo = (last_time - gravacao_init_time)/1000.0;
+
+      arquivo.print(tempo, 3);
       arquivo.print(',');
       arquivo.println(last_reading, 4);
     }
