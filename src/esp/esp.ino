@@ -16,8 +16,9 @@
 #define TAREANDO 2
 #define CALIBRANDO 3
 
-#define loadcell_data 2
-#define loadcell_clk 4
+#define loadcell_data 33
+#define loadcell_clk 25
+#define buzzer 14
 
 // Massa do objeto de referência (em Kg)
 #define PESO_REFERENCIA 4.616
@@ -64,9 +65,9 @@ SemaphoreHandle_t mutex_arquivo = NULL;
 
 // Função que faz uma leitura do banco
 void updateSensor(){
-  //last_reading = scale.get_units();
-  delay(12); // simula o atraso do hx711 (80 hz);
-  last_reading = (float)(random(0, 10001)/10000.0);
+  last_reading = scale.get_units();
+  //delay(12); // simula o atraso do hx711 (80 hz);
+  //last_reading = (float)(random(0, 10001)/10000.0);
   last_time = millis();
 }
 
@@ -87,20 +88,21 @@ void tarear(){
   Serial.println("Fazendo o tare");
   mudarEstado(TAREANDO);
 
-  //Bip para o inicio
-    vTaskDelay(5000 / portTICK_PERIOD_MS);
+  playBuzzer(buzzer, 440, 200, 250, 2);
+  vTaskDelay(5000 / portTICK_PERIOD_MS);
   
   scale.tare();
   is_tareado = true;
-  //Bip para o fim
 
   Serial.println("Tare finalizado");
+  playBuzzer(buzzer, 440, 200, 250, 2);
+  vTaskDelay(500 / portTICK_PERIOD_MS);
   mudarEstado(ESPERANDO);
 }
 
 // Função que realiza a calibração do banco estático
 void calibrar(){
-  if (scale.is_ready()){
+  if (scale.wait_ready_timeout(1000)){
     mudarEstado(CALIBRANDO);
 
     scale.set_scale();
@@ -116,7 +118,8 @@ void calibrar(){
 
     if(!is_referencia_set){
       Serial.println("Iniciando a leitura, deixe o peso de referencia no banco estático");
-      //2 bips para o inicio
+
+      playBuzzer(buzzer, 440, 250, 400, 3);
       vTaskDelay(5000 / portTICK_PERIOD_MS);
 
       leitura = scale.get_value(100);
@@ -125,7 +128,6 @@ void calibrar(){
       Serial.print(", fator de escala: ");
       Serial.println(FATOR_ESCALA);
 
-      //2 bips para o fim
     } else{
       Serial.print("Leitura já definida: ");
       leitura = RAW_VALUE;
@@ -141,6 +143,7 @@ void calibrar(){
     Serial.print("Escala: ");
     Serial.println(leitura/FATOR_ESCALA);
     Serial.println("Calibragem finalizada");
+    playBuzzer(buzzer, 440, 250, 400, 3);
   }
   else{
     Serial.println("HX771 não encontrado (calibrar)");
@@ -182,6 +185,15 @@ void taskRotinas(void* pvParameters){
   }
 }
 
+void playBuzzer(int pin, int frequency, int duration, int delay, int times){
+  for(int i = 0; i < times; i++){
+    tone(pin, frequency, duration);
+    if (delay > 0){
+      vTaskDelay(delay / portTICK_PERIOD_MS);
+    }
+  }
+}
+
 // ==========================================
 //            Setup e Main Loop
 // ==========================================
@@ -210,6 +222,8 @@ void setup() {
 
   // Inicia as células de carga
   scale.begin(loadcell_data, loadcell_clk);
+  scale.tare();
+  scale.set_scale(RAW_VALUE / FATOR_ESCALA);
 
   // Define as rotas acessíveis
   server.on("/",handleRoot);
@@ -238,6 +252,8 @@ void setup() {
     return;
   }
   Serial.println("LittleFS iniciado com sucesso");
+
+  playBuzzer(buzzer, 440, 100, 150, 3);
 }
 
 void loop() {
